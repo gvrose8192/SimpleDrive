@@ -31,8 +31,13 @@ class SimpleDriveNode(Node):
         self.timer = self.create_timer(self.timer_period, self.drive_callback)
 
         # Create service handler at class level (NOT inside drive_callback!)
-        self.reset_service = self.create_service(Trigger, 'reset', self.handle_reset)
-        print("Service 'reset' created and ready to receive commands!")
+        self.reset_service = self.create_service(Trigger, '/simple_drive/reset', self.handle_reset)
+        print("Service '/simple_drive/reset' created and ready to receive commands!")
+
+        # Create start service handler at class level
+        self.start_service = self.create_service(Trigger, '/simple_drive/start', self.handle_start)
+        print("Service '/simple_drive/start' created and ready to receive commands!")
+
 
     def handle_reset(self, request, response):
         """Handle reset service calls - MUST be at class level"""
@@ -54,16 +59,32 @@ class SimpleDriveNode(Node):
         self.get_logger().info(f"Response: {response.message}")
         return response
 
+    def handle_start(self, request, response):
+        """Handle start service calls - immediately starts forward movement"""
+        self.get_logger().info(f"🟢 START SERVICE CALLED: {request}")
+
+        # Reset state machine and IMMEDIATELY transition to FORWARD_1
+        self.state = 'FORWARD_1'  # ← Start immediately!
+        self.action_start_time = self.clock.now().nanoseconds / 1e9  # ← Set current time!
+        self.drive_duration = None
+
+        # Clear any pending velocity commands
+        self.twist.linear.x = 0.0
+        self.twist.angular.z = 0.0
+        self.publisher_.publish(self.twist)
+
+        response.success = True
+        response.message = "Robot starting forward movement sequence"
+
+        self.get_logger().info(f"Response: {response.message}")
+        return response
+
     def drive_callback(self):
         now = self.clock.now().nanoseconds / 1e9
 
         # Wait state
         if self.state == 'WAIT':
-            print(f"State: WAIT (time={now:.1f}s)")
-            if now >= self.wait_timeout:
-                print("Timeout reached, transitioning to FORWARD_1")
-                self.state = 'FORWARD_1'
-                self.action_start_time = now
+            print(f"State: WAIT (waiting for start command)")
 
         elif self.state == 'FORWARD_1':
             print(f"State: FORWARD_1 (moving forward at {self.linear_speed} m/s)")
