@@ -12,24 +12,24 @@ class SimpleDriveNode(Node):
         
         # Parameters
         self.linear_speed = float(self.declare_parameter('linear_speed', 0.2).value)
-        self.angular_speed = float(self.declare_parameter('angular_speed', 1.0).value)
+        self.angular_speed = float(self.declare_parameter('angular_speed', 0.5).value)  # Changed from 1.0 to 0.5
         self.move_distance = float(self.declare_parameter('move_distance', 0.5).value)
-        
+
         # Publisher
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
         self.twist = Twist()
-        
+
         # State machine variables
         self.state = 'WAIT'
         self.drive_duration = None
         self.action_start_time = None
         self.wait_timeout = 2.0
-        
+
         # Clock and timer
         self.clock = self.get_clock()
         self.timer_period = 0.1
         self.timer = self.create_timer(self.timer_period, self.drive_callback)
-        
+
         # Create service handler at class level (NOT inside drive_callback!)
         self.reset_service = self.create_service(Trigger, 'reset', self.handle_reset)
         print("Service 'reset' created and ready to receive commands!")
@@ -37,26 +37,26 @@ class SimpleDriveNode(Node):
     def handle_reset(self, request, response):
         """Handle reset service calls - MUST be at class level"""
         self.get_logger().info(f"Received reset command: {request}")
-        
+
         # Reset the state machine
         self.state = 'WAIT'
         self.action_start_time = None
         self.drive_duration = None
-        
+
         # Clear any pending velocity commands
         self.twist.linear.x = 0.0
         self.twist.angular.z = 0.0
         self.publisher_.publish(self.twist)
-        
+
         response.success = True
         response.message = "Robot reset successfully and ready to start sequence"
-        
+
         self.get_logger().info(f"Response: {response.message}")
         return response
 
     def drive_callback(self):
         now = self.clock.now().nanoseconds / 1e9
-        
+
         # Wait state
         if self.state == 'WAIT':
             print(f"State: WAIT (time={now:.1f}s)")
@@ -64,47 +64,62 @@ class SimpleDriveNode(Node):
                 print("Timeout reached, transitioning to FORWARD_1")
                 self.state = 'FORWARD_1'
                 self.action_start_time = now
-        
+
         elif self.state == 'FORWARD_1':
             print(f"State: FORWARD_1 (moving forward at {self.linear_speed} m/s)")
             self.twist.linear.x = self.linear_speed
             self.twist.angular.z = 0.0
             self.publisher_.publish(self.twist)
-            
+
             duration = self.move_distance / self.linear_speed
             if self.action_start_time is not None and (now - self.action_start_time >= duration):
                 print("Forward distance completed, transitioning to TURN_SPIN")
                 self.state = 'TURN_SPIN'
                 self.action_start_time = now
-        
+
         elif self.state == 'TURN_SPIN':
             print(f"State: TURN_SPIN (spinning at {self.angular_speed} rad/s)")
             self.twist.linear.x = 0.0
-            self.twist.angular.z = self.angular_speed
+            self.twist.angular.z = -self.angular_speed
             self.publisher_.publish(self.twist)
-            
-            angle_to_spin = math.pi
+
+            angle_to_spin = math.pi  # 180° in radians
             spin_duration = angle_to_spin / self.angular_speed
+
             if self.action_start_time is not None and (now - self.action_start_time >= spin_duration):
                 print("Spin completed, transitioning to FORWARD_2")
                 self.state = 'FORWARD_2'
                 self.action_start_time = now
-        
+
         elif self.state == 'FORWARD_2':
-            print(f"State: FORWARD_2 (moving backward at {abs(-self.linear_speed)} m/s)")
-            speed = -self.linear_speed
+            print(f"State: FORWARD_2 (moving forward at {abs(-self.linear_speed)} m/s)")
+            speed = self.linear_speed  # Keep this as is - moving backward relative to original heading
             self.twist.linear.x = speed
             self.twist.angular.z = 0.0
             self.publisher_.publish(self.twist)
-            
+
             duration = self.move_distance / abs(speed)
             if self.action_start_time is not None and (now - self.action_start_time >= duration):
-                print("Return distance completed, transitioning to DONE")
+                print("Return distance completed, transitioning to FINISH_SPIN")
+                self.state = 'FINISH_SPIN'  # Changed from DONE!
+                self.action_start_time = now
+
+        elif self.state == 'FINISH_SPIN':  # NEW STATE!
+            print(f"State: FINISH_SPIN (orienting back to original direction)")
+            self.twist.linear.x = 0.0
+            self.twist.angular.z = -self.angular_speed  # Right turn for 180°
+            self.publisher_.publish(self.twist)
+
+            angle_to_spin = math.pi  # 180° in radians
+            spin_duration = angle_to_spin / self.angular_speed
+
+            if self.action_start_time is not None and (now - self.action_start_time >= spin_duration):
+                print("Final orientation completed, transitioning to DONE")
                 self.state = 'DONE'
                 self.action_start_time = now
-        
+
         elif self.state == 'DONE':
-            print(f"State: DONE! Robot has returned home.")
+            print(f"State: DONE! Robot has executed its path.")
             # Keep publishing stopped velocity in DONE state
             self.twist.linear.x = 0.0
             self.twist.angular.z = 0.0
@@ -139,7 +154,7 @@ class SimpleDriveNode(Node):
         speed = self.angular_speed
         self.twist.linear.x = 0.0
         self.twist.angular.z = speed
-        angle_to_spin = 2 * math.pi
+        angle_to_spin = 1 * math.pi
         spin_duration = angle_to_spin / speed
         
         if self.state == 'TURN_SPIN':
@@ -148,6 +163,7 @@ class SimpleDriveNode(Node):
                 self.state = 'FORWARD_2'
                 self.action_start_time = now
                 return False
+
         self.publisher_.publish(self.twist)
         return True
 
