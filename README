@@ -1,0 +1,22 @@
+How to build and run.
+
+Clone the repo:
+git clone https://github.com/gvrose8192/SimpleDrive.git
+
+From the ros2_ws directory build it:
+colcon build --packages-select simple_drive
+
+Run it:
+ros2 run simple_drive simple_drive_node
+
+In a second terminal run the service:
+
+ros2 run simple_drive reset_service_node
+
+The robot will execute its initial sequence.
+
+In a third terminal run the following command to reset it back to the original state:
+
+ros2 service call /reset std_srvs/srv/Trigger
+
+The robot will execute the original sequence again.
