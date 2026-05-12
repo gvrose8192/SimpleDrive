@@ -6,7 +6,9 @@ git clone https://github.com/gvrose8192/SimpleDrive.git
 From the ros2_ws directory build it:
 colcon build --packages-select simple_drive
 
-Run it:
+Keep in mind that all of these commands must be run from the ros2_ws workspace after source install/setup.[bash][zsh][other]
+
+In a terminal Run it:
 ros2 run simple_drive simple_drive_node
 
 In a second terminal run the service:
