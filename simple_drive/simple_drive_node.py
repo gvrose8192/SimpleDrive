@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_srvs.srv import Trigger
+from sensor_msgs.msg import LaserScan
 import math
 
 class SimpleDriveNode(Node):
@@ -14,6 +15,10 @@ class SimpleDriveNode(Node):
         self.linear_speed = float(self.declare_parameter('linear_speed', 0.2).value)
         self.angular_speed = float(self.declare_parameter('angular_speed', 0.5).value)  # Changed from 1.0 to 0.5
         self.move_distance = float(self.declare_parameter('move_distance', 0.5).value)
+        self.obstacle_threshold = float(self.declare_parameter(
+            'obstacle_threshold',
+            0.3  # meters - stop distance
+        ).value)
 
         # Publisher
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -84,12 +89,19 @@ class SimpleDriveNode(Node):
 
         # Wait state
         if self.state == 'WAIT':
-            print(f"State: WAIT (waiting for start command)")
+            print(f"State: WAIT (waiting for /simple_drive/start command)")
 
         elif self.state == 'FORWARD_1':
-            print(f"State: FORWARD_1 (moving forward at {self.linear_speed} m/s)")
+            # Check LIDAR obstacle detection FIRST!
+            twist_cmd = self.check_obstacle_avoidance()
+
+            # PUBLISH FORWARD VELOCITY EVERY CYCLE
             self.twist.linear.x = self.linear_speed
             self.twist.angular.z = 0.0
+
+            # Apply obstacle avoidance override if needed
+            self.twist = twist_cmd
+
             self.publisher_.publish(self.twist)
 
             duration = self.move_distance / self.linear_speed
@@ -99,9 +111,16 @@ class SimpleDriveNode(Node):
                 self.action_start_time = now
 
         elif self.state == 'TURN_SPIN':
-            print(f"State: TURN_SPIN (spinning at {self.angular_speed} rad/s)")
+            # Check LIDAR obstacle detection FIRST!
+            twist_cmd = self.check_obstacle_avoidance()
+
+            # PUBLISH SPIN VELOCITY EVERY CYCLE
             self.twist.linear.x = 0.0
             self.twist.angular.z = -self.angular_speed
+
+            # Apply obstacle avoidance override if needed
+            self.twist = twist_cmd
+
             self.publisher_.publish(self.twist)
 
             angle_to_spin = math.pi  # 180° in radians
@@ -113,22 +132,36 @@ class SimpleDriveNode(Node):
                 self.action_start_time = now
 
         elif self.state == 'FORWARD_2':
-            print(f"State: FORWARD_2 (moving forward at {abs(-self.linear_speed)} m/s)")
-            speed = self.linear_speed  # Keep this as is - moving backward relative to original heading
-            self.twist.linear.x = speed
+            # Check LIDAR obstacle detection FIRST!
+            twist_cmd = self.check_obstacle_avoidance()
+
+            # PUBLISH BACKWARD VELOCITY EVERY CYCLE
+            speed = self.linear_speed
+            self.twist.linear.x = -speed  # Negative for backward motion
             self.twist.angular.z = 0.0
+
+            # Apply obstacle avoidance override if needed
+            self.twist = twist_cmd
+
             self.publisher_.publish(self.twist)
 
             duration = self.move_distance / abs(speed)
             if self.action_start_time is not None and (now - self.action_start_time >= duration):
                 print("Return distance completed, transitioning to FINISH_SPIN")
-                self.state = 'FINISH_SPIN'  # Changed from DONE!
+                self.state = 'FINISH_SPIN'
                 self.action_start_time = now
 
-        elif self.state == 'FINISH_SPIN':  # NEW STATE!
-            print(f"State: FINISH_SPIN (orienting back to original direction)")
+        elif self.state == 'FINISH_SPIN':
+            # Check LIDAR obstacle detection FIRST!
+            twist_cmd = self.check_obstacle_avoidance()
+
+            # PUBLISH SPIN VELOCITY EVERY CYCLE
             self.twist.linear.x = 0.0
             self.twist.angular.z = -self.angular_speed  # Right turn for 180°
+
+            # Apply obstacle avoidance override if needed
+            self.twist = twist_cmd
+
             self.publisher_.publish(self.twist)
 
             angle_to_spin = math.pi  # 180° in radians
@@ -145,6 +178,34 @@ class SimpleDriveNode(Node):
             self.twist.linear.x = 0.0
             self.twist.angular.z = 0.0
             self.publisher_.publish(self.twist)
+
+    def check_obstacle_avoidance(self):
+        """Check for obstacles using LIDAR data"""
+        twist_cmd = Twist()
+
+        # Subscribe to obstacle detection topic (from lidar_subscriber.py)
+        try:
+            msg = self.get_message('/simple_drive/lidar_obstacle_detected', Float64)
+
+            if msg is not None and msg.data > 0.5:  # Obstacle detected
+                self.get_logger().info(f"🔴 OBSTACLE DETECTED! Stopping robot.")
+
+                # Emergency stop
+                twist_cmd.linear.x = 0.0
+                twist_cmd.angular.z = 0.0
+
+                # Optionally reset state machine to WAIT when obstacle detected
+                # Uncomment below if you want automatic state reset:
+                # if self.state in ['FORWARD_1', 'TURN_SPIN', 'FORWARD_2', 'FINISH_SPIN']:
+                #     self.state = 'WAIT'
+                #     self.action_start_time = None
+            else:
+                self.get_logger().info(f"✓ Path clear, continuing normal operation")
+
+        except Exception as e:
+            self.get_logger().error(f"LIDAR subscription error: {e}")
+
+        return twist_cmd
 
     def set_duration(self, state_name, duration):
         """Helper to set how long the robot should move in seconds"""
@@ -163,7 +224,7 @@ class SimpleDriveNode(Node):
         self.twist.angular.z = 0.0
         duration = self.move_distance / speed
         now = self.clock.now().nanoseconds / 1e9
-        
+
         if self.action_start_time is not None and (now - self.action_start_time >= duration):
             self.state = 'TURN_SPIN'
             self.action_start_time = now
@@ -177,7 +238,7 @@ class SimpleDriveNode(Node):
         self.twist.angular.z = speed
         angle_to_spin = 1 * math.pi
         spin_duration = angle_to_spin / speed
-        
+
         if self.state == 'TURN_SPIN':
             now = self.clock.now().nanoseconds / 1e9
             if self.action_start_time is not None and (now - self.action_start_time >= spin_duration):
