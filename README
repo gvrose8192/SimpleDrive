@@ -9,16 +9,28 @@ colcon build --packages-select simple_drive
 Keep in mind that all of these commands must be run from the ros2_ws workspace after source install/setup.[bash][zsh][other]
 
 In a terminal Run it:
-ros2 run simple_drive simple_drive_node
+# ros2 run simple_drive simple_drive_node
+
+The robot will enter the WAIT state.
 
 In a second terminal run the service:
 
-ros2 run simple_drive reset_service_node
+# ros2 run simple_drive reset_service_node
 
-The robot will execute its initial sequence.
+In a third terminal run the following command to start the robot movement sequence:
 
-In a third terminal run the following command to reset it back to the original state:
+# ros2 service call /simple_drive/start std_srvs/srv/Trigger
 
-ros2 service call /reset std_srvs/srv/Trigger
+After running it's movement sequence the robot will enter the DONE state.
+
+Run the reset sequence to move back to the WAIT state.
+
+#ros2 service call /simple_drive/reset std_srvs/srv/Trigger
+
+The robot will enter the WAIT state again.
+
+Run the start sequence to repeat the previous steps.
+
+# ros2 service call /simple_drive/start std_srvs/srv/Trigger
 
 The robot will execute the original sequence again.
