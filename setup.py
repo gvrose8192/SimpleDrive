@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'simple_drive_node = simple_drive.simple_drive_node:main',
             'reset_service_node = simple_drive.reset_service_node:main',
+            'obstacle_avoidance_node = simple_drive.obstacle_avoidance_node:main',
         ],
     },
 )
