@@ -48,15 +48,22 @@ Obstacle Avoidance Behavior
 
 When an obstacle is detected within the stop_distance parameter (default: 0.5m):
 1. The robot immediately stops and transitions to OBSTACLE_AVOID state
-2. Once a clear path is found (obstacle beyond stop_distance), the robot spins in place
-3. After spinning ~90°, the robot resumes its movement sequence
+2. Robot attempts to find a clear path through multiple spin attempts:
+   - Attempt 1: Spin ~45° then check for clear path
+   - Attempt 2: Spin another ~45° (total ~90°) then check
+   - Attempt 3: Spin another ~45° (total ~135°) then check
+   - Attempt 4: Spin another ~45° (total ~180°) then check
+3. After each attempt, if path is clear (~1 second spin), resume movement
+4. If obstacle persists beyond max_spin_attempts, robot transitions to DONE state
 
 Parameters (can be set at runtime with ros2 param set):
 - linear_speed: Forward velocity magnitude (default: 0.2 m/s)
 - angular_speed: Spin velocity for turns (default: 0.5 rad/s)
-- move_distance: Distance to travel in forward phases (default: 0.5 m)
+- move_distance: Distance to travel in forward phases (default: 1.25 m on new-branch)
 - stop_distance: Obstacle detection threshold (default: 0.5 m)
 - spin_speed: Spin speed when avoiding obstacles (default: 1.0 rad/s)
+- max_spin_attempts: Number of attempts to find clear path before giving up (default: 4)
+- attempt_timeout: Seconds to wait between spin attempts (default: 2.5 s)
 
 LIDAR Setup
 

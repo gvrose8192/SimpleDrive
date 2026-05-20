@@ -20,6 +20,8 @@ class SimpleDriveNode(Node):
         # Obstacle avoidance parameters with defaults
         self.stop_distance = float(self.declare_parameter('stop_distance', 0.5).value)
         self.spin_speed = float(self.declare_parameter('spin_speed', 1.0).value)
+        self.max_spin_attempts = int(self.declare_parameter('max_spin_attempts', 4).value)
+        self.attempt_timeout = float(self.declare_parameter('attempt_timeout', 2.5).value)
 
         # Publisher
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -49,6 +51,10 @@ class SimpleDriveNode(Node):
         self.reset_service = self.create_service(Trigger, '/simple_drive/reset', self.handle_reset)
         self.start_service = self.create_service(Trigger, '/simple_drive/start', self.handle_start)
 
+        # Spin attempt tracking variables (initialized in handle_start for consistency)
+        self.spin_attempt_num = 0
+        self.spin_attempt_time = None
+
         self.get_logger().info(
             f"Simple Drive Node initialized. "
             f"Linear speed: {self.linear_speed} m/s, Angular speed: {self.angular_speed} rad/s, "
@@ -68,8 +74,10 @@ class SimpleDriveNode(Node):
         self.twist.angular.z = 0.0
         self.publisher_.publish(self.twist)
 
-        # Reset obstacle tracking
+        # Reset obstacle tracking (including spin attempt state)
         self.scan_message = None
+        self.spin_attempt_num = 0
+        self.spin_attempt_time = None
 
         response.success = True
         response.message = "Robot reset successfully"
@@ -118,6 +126,11 @@ class SimpleDriveNode(Node):
         self.twist.angular.z = 0.0
         self.publisher_.publish(self.twist)
 
+        # Reset obstacle avoidance tracking
+        self.scan_message = None
+        self.spin_attempt_num = 0
+        self.spin_attempt_time = None
+
         response.success = True
         response.message = "Starting movement sequence"
         return response
@@ -154,22 +167,44 @@ class SimpleDriveNode(Node):
         elif self.state == 'OBSTACLE_AVOID':
             obstacle_dist = self.find_closest_obstacle()
 
-            if obstacle_dist is not None and obstacle_dist > self.stop_distance:
-                # Path clear - spin to change orientation
-                self.twist.linear.x = 0.0
-                self.twist.angular.z = -self.spin_speed
-                self.publisher_.publish(self.twist)
+            # Initialize angle tracking if needed
+            if self.spin_attempt_time is None:
+                self.spin_attempt_time = now
 
-                # Transition back to FORWARD_1 after spinning for a short duration
-                spin_duration = (math.pi - 0.5) / self.spin_speed  # Spin ~90 degrees then resume
-                if self.action_start_time is not None and (now - self.action_start_time >= spin_duration):
+            # Calculate total spin angle accumulated so far (45° per additional attempt)
+            angle_per_spin = math.pi / 4  # 45° per spin check
+            base_angle = (self.spin_attempt_num - 1) * angle_per_spin  # Previous full spins worth of angle
+
+            time_since_spin = now - self.spin_attempt_time
+            spin_duration = angle_per_spin / self.spin_speed  # ~0.6s for 45° at 1 rad/s
+
+            # Calculate accumulated angular movement since last timer reset
+            accumulated_angle = self.spin_speed * time_since_spin
+            total_angle = base_angle + accumulated_angle
+
+            # Check if we've spun at least 45° (~0.6s) and should check for clear path
+            if accumulated_angle >= angle_per_spin * 0.9:
+                self.spin_attempt_time = now
+
+                # Check if obstacle has moved far enough away to resume forward movement
+                if obstacle_dist is not None and obstacle_dist > self.stop_distance:
                     self.state = 'FORWARD_1'
                     self.action_start_time = now
-            else:
-                # Still blocked - keep spinning or stop if no LIDAR data
-                self.twist.linear.x = 0.0
-                self.twist.angular.z = -self.spin_speed if obstacle_dist is None else 0.0
-                self.publisher_.publish(self.twist)
+
+            current_angular_vel = 0.0
+
+            if obstacle_dist is None:
+                # No LIDAR data - keep spinning to try to find clear path
+                if self.spin_attempt_num <= self.max_spin_attempts:
+                    current_angular_vel = -self.spin_speed
+            elif self.spin_attempt_num < self.max_spin_attempts and accumulated_angle < angle_per_spin * 0.9:
+                # Keep spinning to accumulate more angle for next path check
+                current_angular_vel = -self.spin_speed
+
+            # Always apply zero linear velocity in OBSTACLE_AVOID state
+            self.twist.linear.x = 0.0
+            self.twist.angular.z = current_angular_vel
+            self.publisher_.publish(self.twist)
 
         elif self.state == 'TURN_SPIN':
             # Obstacle avoidance check
