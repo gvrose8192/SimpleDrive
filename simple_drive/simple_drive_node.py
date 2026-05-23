@@ -44,7 +44,7 @@ class SimpleDriveNode(Node):
 
         # Clock and timer
         self.clock = self.get_clock()
-        self.timer_period = 0.033  # ~30Hz for responsive obstacle avoidance
+        self.timer_period = 0.5  # 500ms polling - only need to check when moving (reduced memory overhead)
         self.timer = self.create_timer(self.timer_period, self.drive_callback)
 
         # Create services (MUST be instance methods to access self)

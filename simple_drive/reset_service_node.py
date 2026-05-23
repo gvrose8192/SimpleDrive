@@ -8,7 +8,8 @@ class ResetServiceNode(Node):
     def __init__(self):
         super().__init__('reset_service')
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
-        
+        self.twist = Twist()
+
         # Create service that resets simple_drive node
         self.reset_service = self.create_service(Trigger, 'reset', self.handle_reset)
         self.get_logger().info("Reset service created and ready to receive commands!")
@@ -16,10 +17,11 @@ class ResetServiceNode(Node):
     def handle_reset(self, request, response):
         """Handle reset commands"""
         self.get_logger().info(f"🟢 RESET SERVICE CALLED: {request}")
-        
-        # Publish a stop command
-        twist_msg = Twist()
-        self.publisher_.publish(twist_msg)
+
+        # Publish a stop command (reuse existing publisher's internal buffer)
+        self.twist.linear.x = 0.0
+        self.twist.angular.z = 0.0
+        self.publisher_.publish(self.twist)
         
         response.success = True
         response.message = "Robot reset successfully and ready to start sequence"
