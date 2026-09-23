@@ -1,7 +1,7 @@
 Simple Drive with Obstacle Avoidance
 
 This ROS 2 package implements a finite state machine that controls a robot's movement sequence:
-- **Forward 50cm** → **Spin 180°** → **Forward 50cm backward** → **Spin 180° to face original direction** → **Done**
+- **Forward 1.25m** → **Spin 180°** → **Forward 1.25m** (backward relative to original heading) → **Spin 180° to face original direction** → **Done**
 
 The robot also has integrated obstacle avoidance using LIDAR sensor data from `/scan`.
 
@@ -27,7 +27,7 @@ Optional: Start LIDAR subscriber (required for obstacle avoidance):
 ros2 run <package> lidar_subscriber_node  # Replace with your actual LIDAR node
 
 In a second terminal run the reset service node:
-ros2 run simple_drive reset_service_node
+ros2 run simple_drive/reset_service_node
 
 In a third terminal run the following command to start the robot movement sequence:
 ros2 service call /simple_drive/start std_srvs/srv/Trigger
@@ -49,17 +49,14 @@ Obstacle Avoidance Behavior
 When an obstacle is detected within the stop_distance parameter (default: 0.5m):
 1. The robot immediately stops and transitions to OBSTACLE_AVOID state
 2. Robot attempts to find a clear path through multiple spin attempts:
-   - Attempt 1: Spin ~45° then check for clear path
-   - Attempt 2: Spin another ~45° (total ~90°) then check
-   - Attempt 3: Spin another ~45° (total ~135°) then check
-   - Attempt 4: Spin another ~45° (total ~180°) then check
-3. After each attempt, if path is clear (~1 second spin), resume movement
-4. If obstacle persists beyond max_spin_attempts, robot transitions to DONE state
+   - Attempt 1-4: Spin ~45° then check for clear path, repeat until obstacle clears or max attempts reached
+3. After each attempt, if path is clear (distance > stop_distance), resume forward movement
+4. If no clear path found within max_spin_attempts (default: 4), robot stays in place
 
 Parameters (can be set at runtime with ros2 param set):
 - linear_speed: Forward velocity magnitude (default: 0.2 m/s)
 - angular_speed: Spin velocity for turns (default: 0.5 rad/s)
-- move_distance: Distance to travel in forward phases (default: 1.25 m on new-branch)
+- move_distance: Distance to travel in forward phases (default: 1.25 m)
 - stop_distance: Obstacle detection threshold (default: 0.5 m)
 - spin_speed: Spin speed when avoiding obstacles (default: 1.0 rad/s)
 - max_spin_attempts: Number of attempts to find clear path before giving up (default: 4)
